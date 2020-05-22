@@ -5,83 +5,82 @@
 #include <FMOD/fmod_errors.h>
 #include <iostream>
 
-AudioEngine::AudioEngine() : soundCache(), channelMap(), soundBanks(), eventDescriptions(), eventInstances() {
+AudioEngine::AudioEngine() : sounds(), loopsPlaying(), soundBanks(), eventDescriptions(), eventInstances() {}
+
+void AudioEngine::init() {
     ERRCHECK(FMOD::Studio::System::create(&studioSystem));
     ERRCHECK(studioSystem->getCoreSystem(&lowLevelSystem));
     ERRCHECK(lowLevelSystem->setSoftwareFormat(0, FMOD_SPEAKERMODE_STEREO, 0));
     ERRCHECK(lowLevelSystem->set3DSettings(1.0, DISTANCEFACTOR, 1.0f));
     ERRCHECK(studioSystem->initialize(MAX_AUDIO_CHANNELS, FMOD_STUDIO_INIT_NORMAL, FMOD_INIT_NORMAL, 0));
+
 }
 
 void AudioEngine::update() {
     ERRCHECK(studioSystem->update()); // also updates the low level system
 }
 
-void AudioEngine::loadSoundFile(const char* filepath, bool loop) {
-    if (!soundIsCached(filepath)) {
-        std::cout << "Audio Engine: Loading Sound File " << filepath << "\n";
+void AudioEngine::loadSound(SoundInfo soundInfo) {
+    if (!soundLoaded(soundInfo)) {
+        std::cout << "Audio Engine: Loading Sound from file " << soundInfo.filePath << '\n';
         FMOD::Sound* sound;
-        ERRCHECK(lowLevelSystem->createSound(filepath, FMOD_2D, 0, &sound));
-        ERRCHECK(sound->setMode(loop ? FMOD_LOOP_NORMAL : FMOD_LOOP_OFF));
-        soundCache.insert({ filepath,  sound });
+        ERRCHECK(lowLevelSystem->createSound(soundInfo.filePath, soundInfo.is3D ? FMOD_3D : FMOD_2D, 0, &sound));
+        ERRCHECK(sound->setMode(soundInfo.isLoop ? FMOD_LOOP_NORMAL : FMOD_LOOP_OFF));
+        ERRCHECK(sound->set3DMinMaxDistance(0.5f * DISTANCEFACTOR, 5000.0f * DISTANCEFACTOR));
+        sounds.insert({ soundInfo.uniqueID, sound });
     }
-    else 
+    else
         std::cout << "Audio Engine: Sound File was already loaded!\n";
 }
 
-void AudioEngine::playSoundFile(const char* filepath) {
-    if (soundIsCached(filepath)) {
-        // channel for sound to play on
+void AudioEngine::playSound(SoundInfo soundInfo) {
+    if (soundLoaded(soundInfo)) {
         FMOD::Channel* channel;
-        ERRCHECK(lowLevelSystem->playSound(getSound(filepath), 0, false, &channel));
+        // start play in 'paused' state
+        ERRCHECK(lowLevelSystem->playSound(sounds[soundInfo.uniqueID], 0, true /* start paused */, &channel));
+
+        if (soundInfo.is3D)
+            set3dChannelPosition(soundInfo, channel);
+        
+        if (soundInfo.isLoop) // add to channel map of sounds currently playing, to stop later
+            loopsPlaying.insert({ soundInfo.uniqueID, channel });
+
+        // start audio playback
+        ERRCHECK(channel->setPaused(false));
+         
     }
     else
-        std::cout << "AudioEngine: Trying to play a sound that wasn't loaded!\n";
+        std::cout << "Audio Engine: Can't play, sound was not loaded yet from " << soundInfo.filePath << '\n';
+
 }
 
-void AudioEngine::load3DSoundFile(const char* filepath, bool loop) {
-    if (!soundIsCached(filepath)) {
-        std::cout << "Loading 3D Sound File " << filepath << "\n";
-        FMOD::Sound* sound;
-        ERRCHECK(lowLevelSystem->createSound(filepath, FMOD_3D, 0, &sound));
-        // TODO allow user to set custom 3D Min Max Distance
-        ERRCHECK(sound->set3DMinMaxDistance(0.5f * DISTANCEFACTOR, 5000.0f * DISTANCEFACTOR));
-        ERRCHECK(sound->setMode(loop ? FMOD_LOOP_NORMAL : FMOD_LOOP_OFF));
-        // TODO create separate cache for 3D sounds
-        soundCache.insert({ filepath,  sound });
+void AudioEngine::stopSound(SoundInfo soundInfo) {
+    if (soundIsPlaying(soundInfo)) {
+        loopsPlaying[soundInfo.uniqueID]->stop();
+        loopsPlaying.erase(soundInfo.uniqueID);
     }
     else
-        std::cout << "AudioEngine: 3D Sound File was already loaded!\n";
+        std::cout << "Audio Engine: Can't stop a sound that's not playing!\n";
 }
 
-void AudioEngine::play3DSoundFile(const char* filepath, float x, float y, float z) {
-    if (soundIsCached(filepath)) {
-        FMOD_VECTOR position = { x * DISTANCEFACTOR, y, z };
-        FMOD_VECTOR velocity = { 0.0f, 0.0f, 0.0f };
-        FMOD::Channel* channel;
-        lowLevelSystem->playSound(getSound(filepath), 0, true, &channel);
-        channel->set3DAttributes(&position, &velocity);
-        channel->setPaused(false);
-    }
-    else
-        std::cout << "AudioEngine: Trying to play a 3DSound that wasn't loaded!\n";
+bool AudioEngine::soundIsPlaying(SoundInfo soundInfo) {
+    return soundInfo.isLoop && loopsPlaying.count(soundInfo.uniqueID);
 }
 
-void AudioEngine::update3DSoundPosition(const char* filepath, float x, float y, float z) {
-    if (channelMap.count(filepath) > 0) {
-        FMOD::Channel* channel = channelMap[filepath];
-        FMOD_VECTOR position = { x * DISTANCEFACTOR, y * DISTANCEFACTOR, z * DISTANCEFACTOR };
-        FMOD_VECTOR velocity = { 0.0f, 0.0f, 0.0f };
-        ERRCHECK(channel->set3DAttributes(&position, &velocity));
-    }
+
+void AudioEngine::update3DSoundPosition(SoundInfo soundInfo) {
+    if (soundIsPlaying(soundInfo)) 
+        set3dChannelPosition(soundInfo, loopsPlaying[soundInfo.uniqueID]);
     else
-        std::cout << "AudioEngine: Trying to update 3D Sound Position for a sound that wasn't loaded!\n";
+        std::cout << "Audio Engine: Can't update sound position!\n";
+
 }
+
 
 void AudioEngine::set3DListenerPosition(float posX, float posY, float posZ, float forwardX, float forwardY, float forwardZ, float upX, float upY, float upZ) {
     listenerpos = { posX,     posY,     posZ };
-    forward = { forwardY, forwardX, forwardZ };
-    up = { upY,      upX,      upZ };
+    forward =     { forwardX, forwardY, forwardZ };
+    up =          { upX,      upY,      upZ };
     ERRCHECK(lowLevelSystem->set3DListenerAttributes(0, &listenerpos, 0, &forward, &up));
 }
 
@@ -141,14 +140,15 @@ void AudioEngine::stopEvent(const char* eventName, int instanceIndex) {
 
 
 // Private definitions 
-
-bool AudioEngine::soundIsCached(const char* filepath) {
-    return soundCache.count(filepath) > 0;
+bool AudioEngine::soundLoaded(SoundInfo soundInfo) {
+    return sounds.count(soundInfo.uniqueID) > 0;
+}
+void AudioEngine::set3dChannelPosition(SoundInfo soundInfo, FMOD::Channel* channel) {
+    FMOD_VECTOR position = { soundInfo.x * DISTANCEFACTOR, soundInfo.y * DISTANCEFACTOR, soundInfo.z * DISTANCEFACTOR };
+    FMOD_VECTOR velocity = { 0.0f, 0.0f, 0.0f }; // TODO Add dopplar (velocity) support
+    ERRCHECK(channel->set3DAttributes(&position, &velocity));
 }
 
-FMOD::Sound* AudioEngine::getSound(const char* filepath) {
-    return soundCache[filepath];
-}
 
 // Error checking/debugging function defintions
 

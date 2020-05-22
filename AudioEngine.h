@@ -13,33 +13,66 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <list>
 #include <map>
 
-// FMOD Error Handling
+// FMOD Error Handling Function
 void ERRCHECK_fn(FMOD_RESULT result, const char* file, int line);
 #define ERRCHECK(_result) ERRCHECK_fn(_result, __FILE__, __LINE__)
 
+
+struct SoundInfo {
+    
+    std::string uniqueID; 
+
+    const char* filePath;
+    
+    bool isLoop, is3D, isLoaded;
+    
+    float x, y, z;
+
+    // convienience method to set the 3D coordinates of the sound.
+    void set3DCoords(float x, float y, float z) {
+        this->x = x, this->y = y, this->z = z;
+    }
+
+    SoundInfo(const char* filePath = "", bool isLoop = false, bool is3D = false, float x = 0.0f, float y = 0.0f, float z = 0.0f) 
+        : filePath(filePath), isLoop(isLoop), is3D(is3D), x(x), y(y), z(z) 
+    {
+        uniqueID = filePath;
+    }
+
+    // TODO  implement sound instancing
+    // int instanceID = -1; 
+
+};
+
 class AudioEngine {
 public:
+
     /**
-    * Initializes Audio Engine Studio and Core systems
-    * FMOD's Distance factor is set to 1.0f by default (1 meter/ 3D game unit)
+    * Audio Engine constructor. method init() must be called before use of the Audio Engine.
     */
     AudioEngine();
 
     /**
+    * Initializes Audio Engine Studio and Core systems
+    * FMOD's Distance factor is set to 1.0f by default (1 meter/ 3D game unit)
+    */
+    void init(); // TODO
+    /**
     * Method which should be called every frame of the game loop
     */
     void update();
-
+    
     /**
-    * Loads a 2D sound which will playback in tradidional stereo mode (IE, not positional audio)
+    * Loads a mono or stereo audio file,  which will playback in tradidional stereo mode (IE, not positional audio)
     * The file is read into the cache to prepare for later playback.
     * Only reads file and creates the sound if it has not already been added to the cache.
-    * To play the sound later, use method playSoundFile()
+    * To play the sound later, use method playSound()
     */
-    void loadSoundFile(const char* filepath,bool loop);
-    
+    void loadSound(SoundInfo soundInfo);
+
     /**
     * Plays a sound file using FMOD's low level audio system. If the sound file has not been
     * previously loaded using loadSoundFile(), a console message is displayed
@@ -47,29 +80,21 @@ public:
     * @var filename - relative path to file from project directory. (Can be .OGG, .WAV, .MP3,
     *                 or any other FMOD-supported audio format)
     */
-    void playSoundFile(const char* filepath);
+    void playSound(SoundInfo soundInfo);
+    
+    void stopSound(SoundInfo soundInfo);
 
     /**
-    * Loads a 3D sound. The position of the sound is set while calling method play3DSoundFile().
-    * The file is read into the cache to prepare for later playback.
-    * Only reads file and creates the sound if it has not already been added to the cache.
-    * To play the sound later, use method play3DSoundFile()
+    * Updates the position of a looping 3D sound that has already been loaded and is playing back.
+    * The SoundInfo object's position coordinates will be used for the new sound position, so
+    * SoundInfo::set3DCoords(x,y,z) should be called before this method to set the new desired location.
     */
-    void load3DSoundFile(const char* filepath, bool loop);
+    void update3DSoundPosition(SoundInfo soundInfo); 
+    
+    
 
-    /**
-    * Plays a 3D sound file using FMOD's low level audio system. If the sound file has not been
-    * previously loaded using load3DSoundFile(), a console message is displayed
-    *
-    * @var filename - relative path to file from project directory. (Can be .OGG, .WAV, .MP3,
-    *                 or any other FMOD-supported audio format)
-    */
-    void play3DSoundFile(const char* filepath, float x, float y, float z);
+    bool soundIsPlaying(SoundInfo soundInfo); 
    
-    /**
-    * Sets the posision of a looping 3D sound that has already been loaded and is playing back.
-    */
-    void update3DSoundPosition(const char* filepath, float x, float y, float z);
 
     /**
     * Sets the position of the listener in the 3D scene.
@@ -82,13 +107,15 @@ public:
                                float upX,      float upY,      float upZ);
 
     /**
-    * Loads an FMOD Studio soundbank
+    * Loads an FMOD Studio soundbank 
+    * TODO Fix
     */
-    void loadFMODStudioBank(const char* filepath);
+    void loadFMODStudioBank(const char* filePath);
     
     /**
     * Loads an FMOD Studio Event. The Soundbank that this event is in must have been loaded before
     * calling this method.
+    * TODO Fix
     */
     void loadFMODStudioEvent(const char* eventName, std::vector<std::pair<const char*, float>> paramsValues = { });
     
@@ -106,21 +133,38 @@ public:
     
     /**
     * Stops the specified instance of an event, if it is playing.
+    * TODO Fix
     */
     void stopEvent(const char* eventName, int instanceIndex = 0);
  
-private:    
+private:  
+
+    /*
+   * Map which caches FMOD Low-Level sounds
+   * Key is the SoundInfo's uniqueKey field.
+   * Value is the FMOD::Sound* to be played back.
+   * TODO Refactor to use numeric UID as key
+   */
+    std::map<std::string, FMOD::Sound*> sounds;
+
+    /*
+    * Map which stores the current playback channels of any playing sound loop
+    * Key is the SoundInfo's uniqueKey field.
+    * Value is the FMOD::Channel* the FMOD::Sound* is playing back on.
+    */
+    std::map<std::string, FMOD::Channel*> loopsPlaying;
+    
     /**
     * Checks if a sound file is in the soundCache
     */
-    bool soundIsCached(const char* filepath);
+    bool soundLoaded(SoundInfo soundInfo); 
+
 
     /**
-    * Gets a sound from the cache without checking if it has been added.
-    * Only use if certain sound is in cache, as one will be created at provided filepath
-    * key value (but it won't be initialized or work)
+    * Sets the 3D position of a sound 
     */
-    FMOD::Sound* getSound(const char* filepath);
+    void set3dChannelPosition(SoundInfo soundInfo, FMOD::Channel* channel);
+    
 
     /**
     * Prints debug info about an FMOD event description
@@ -131,7 +175,7 @@ private:
     // FMOD Studio API system, which can play FMOD sound banks (*.bank)
     FMOD::Studio::System* studioSystem = nullptr;       
     
-    // FMOD's low-level audio system which plays audio files and is obtained from Studio System)
+    // FMOD's low-level audio system which plays audio files and is obtained from Studio System
     FMOD::System* lowLevelSystem = nullptr;          
     
     // Max FMOD::Channels for the audio engine 
@@ -149,21 +193,7 @@ private:
     // Listener upwards vector, initialized to default value
     FMOD_VECTOR up          = { 0.0f, 1.0f, 0.0f };
 
-    /*
-    * Map which caches FMOD Low-Level sounds, created with loadSoundFile() and load3DSoundFile(). 
-    * Key is the relative file path of each unique sound asset. 
-    * Value is the FMOD::Sound* to be played back.
-    * TODO Refactor to use numeric UID as key
-    */
-    std::map<std::string, FMOD::Sound*> soundCache;   
-    
-    /*
-    * Map which stores the current playback channels of any looping sound that is created with 
-    * loadSoundFile() and load3DSoundFile().
-    * Key is the relative file path of each the sound asset.
-    * Value is the FMOD::Channel* the FMOD::Sound* is playing back on.
-    */
-    std::map<std::string, FMOD::Channel*> channelMap;
+   
 
     /*
     * Map which stores the soundbanks loaded with loadFMODStudioBank()
