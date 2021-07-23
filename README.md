@@ -1,5 +1,9 @@
-### FMOD VS19 Setup Overview - (see FMOD-VS19-Setup.docx for detailed directions)
-##### This guide works best with a Visual Studio 19 Project created following CPSC5910's SetupOpenGL.pdf
+## Original FMOD C++ Audio Engine
+### Custom audio engine that provides 1-shot and looping sound playback from raw audio files and/or FMOD sound banks
+### Supports custom volume fades, 3D positional audio, and spatial reverb
+
+### Visual Studio 19 setup instructions: 
+###### *(See FMOD-VS19-Setup.docx for detailed directions)*
 
 ###### 1. Obtain FMOD’s .dll files, .lib files, and header files. These are included in this repository, or can optionally be obtained by downloading/installing the FMOD Studio API from https://www.fmod.com/download
 
